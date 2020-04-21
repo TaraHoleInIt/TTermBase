@@ -5,6 +5,7 @@
 #include <Arduino.h>
 #include <ctype.h>
 #include <string.h>
+#include <stdlib.h>
 #include <TTermBase.h>
 
 #define MakeColorF( r, g, b ) ( ( r == 1 ? Attrib_FR : 0 ) | ( g == 1 ? Attrib_FG : 0 ) | ( b == 1 ? Attrib_FB : 0 ) )
@@ -38,6 +39,9 @@ void TTermbase::Clear( int Mode ) {
     int Offset = x + ( y * TermWidth );
     int Length = 0;
     int i = 0;
+
+    Serial.print( "Clear: " );
+    Serial.println( Mode );
 
     switch ( Mode ) {
         case Clear_CursorToBOS: {
@@ -80,16 +84,29 @@ size_t TTermbase::write( uint8_t Data ) {
                 IsInEscape = false;
 
                 switch ( Data ) {
+                    case 'H':
+                    case 'h': {
+                        Escape_CursorPosition( );
+                        break;
+                    }
                     case 'J':
                     case 'j': {
                         Escape_Clear( );
                         break;
                     }
+                    case 'M':
                     case 'm': {
                         Escape_SGR( );
                         break;
                     }
-                    default: break;
+                    default: {
+                        Serial.print( "Unknown code (" );
+                        Serial.print( ( char ) Data );
+                        Serial.print( ") / " );
+                        Serial.println( EscapeString );
+
+                        break;
+                    }
                 };
 
                 break;
@@ -226,6 +243,12 @@ void TTermbase::MarkAsDirty( int Offset, int Length ) {
 }
 
 void TTermbase::Escape_Clear( void ) {
+    int Mode = strtol( EscapeString, NULL, 10 );
+
+    // If mode doesn't parse correctly just clear to the end of the screen
+    Mode = ( Mode == LONG_MIN || Mode == LONG_MAX ) ? 0 : Mode;
+
+    Clear( Mode );
 }
 
 // fg color - 30
@@ -347,4 +370,40 @@ void TTermbase::Escape_SGR( void ) {
     }
 
     AttribMask = Temp;
+}
+
+void TTermbase::Escape_CursorPosition( void ) {
+    char* Tok = NULL;
+    int NewX = 0;
+    int NewY = 0;
+
+    // check for the seperator character
+    Tok = strstr( EscapeString, ";" );
+
+    // apparently this escape sequence must have a semicolon
+    if ( Tok ) {
+        // if it exists, set it to a null terminator
+        // this way EscapeString will contain the first parameter
+        // and Tok will point to the second parameter
+        *Tok++ = 0;
+
+        NewY = strtol( EscapeString, NULL, 10 );
+        NewX = strtol( Tok, NULL, 10 );
+
+        // if the parameter is omitted (or there is a parse error) strtol should
+        // return LONG_MIN or LONG_MAX.
+        // the expected behaviour of an omitted position is to set it to 1
+        NewY = ( NewY == LONG_MIN || NewY == LONG_MAX ) ? 1 : NewY;
+        NewX = ( NewX == LONG_MIN || NewY == LONG_MAX ) ? 1 : NewX;
+
+        // coordinates are based on 1,1 being the top left
+        NewY = ( NewY < 1 ) ? 1 : NewY;
+        NewY = ( NewY > TermHeight ) ? TermHeight - 1 : NewY - 1;
+
+        NewX = ( NewX < 0 ) ? 1 : NewX;
+        NewX = ( NewX > TermWidth ) ? TermWidth - 1 : NewX - 1;
+
+        x = NewX;
+        y = NewY;
+    }
 }

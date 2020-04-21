@@ -60,6 +60,7 @@ protected:
 
     virtual size_t DrawGlyph( int x, int y, uint8_t Character, uint16_t Attrib ) = 0;
 
+    virtual void Escape_CursorPosition( void );
     virtual void Escape_Clear( void );
     virtual void Escape_SGR( void );
 public:
