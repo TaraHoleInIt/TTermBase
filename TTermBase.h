@@ -38,8 +38,12 @@ private:
     int LastCursorY;
 
     uint16_t LastAttribAtCursorPos;
+    char LastCharAtCursorPos;
+
     uint16_t DefaultAttrib;
     uint16_t AttribMask;
+
+    void MoveCursor( int NewX, int NewY );
 
     /**
      * @brief Used to build the ANSI escape string from individual characters.
@@ -98,6 +102,15 @@ private:
      * 
      */
     virtual void Escape_SGR( void );
+
+    /**
+     * @brief Escape sequence to move the cursor
+     * 
+     * @param Mode Direction to move the cursor: a /\, b \/, c >, or d <
+     */
+    virtual void Escape_MoveCursor( char Mode );
+
+    virtual void HandleEscapeSequence( char Data );
 protected:
     char* Screen;
     uint16_t* Attrib;
@@ -112,9 +125,12 @@ protected:
     int _FontWidth;
     int _FontHeight;
 
+    bool CursorBlinkState;
     uint32_t NextCursorBlink;
     uint32_t NextSlowBlink;
     uint32_t NextFastBlink;
+
+    virtual void BlinkCursor( void );
 
     /**
      * @brief Display drivers must implement this to draw characters on the screen
