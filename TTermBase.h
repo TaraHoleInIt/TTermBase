@@ -7,7 +7,7 @@
 #define Attrib_Dirty bit( 15 )
 #define Attrib_Hidden bit( 14 )
 #define Attrib_Reverse bit( 13 )
-#define Attrib_Blink bit( 12 )
+// free bit at pos 12
 #define Attrib_Strike bit( 11 )
 #define Attrib_Underline bit( 10 )
 #define Attrib_Conceal bit( 9 )
@@ -29,12 +29,81 @@
 #define Clear_FullScreen 2
 
 class TTermbase {
+private:
+    char EscapeString[ 64 ];
+    int EscapeLength;
+    bool IsInEscape;
+
+    int LastCursorX;
+    int LastCursorY;
+
+    uint16_t LastAttribAtCursorPos;
+    uint16_t DefaultAttrib;
+    uint16_t AttribMask;
+
+    /**
+     * @brief Used to build the ANSI escape string from individual characters.
+     * 
+     * @param c Character to add
+     * @return true If character was added to the escape string
+     * @return false If there is no more room in the escape string
+     */
+    bool AddCharacterToEscapeString( char c );
+
+    /**
+     * @brief Sets the dirty attribute for all characters between Offset and Offset + Length
+     * 
+     * @param Offset Offset into the screen to start
+     * @param Length Number of characters to mark as dirty
+     */
+    void MarkAsDirty( int Offset, int Length );
+
+    /**
+     * @brief Clears the screen from Offset to Offset + Length
+     * 
+     * @param Offset Offset into screen to start clearing
+     * @param Length Number of characters to clear
+     */
+    void Clear( int Offset, int Length );
+
+    /**
+     * @brief Gets a screen offset from the given x and y coordinates
+     * 
+     * @param x X Coordinate
+     * @param y Y Coordinate
+     * @return Offset into screen or attribute memory
+     */
+    int GetCursorOffset( int x, int y );
+
+    /**
+     * @brief Escape sequence to erase withing a line/row
+     * 
+     */
+    virtual void Escape_EraseInLine( void );
+
+    /**
+     * @brief Escape sequence to set the cursor position
+     * 
+     */
+    virtual void Escape_CursorPosition( void );
+
+    /**
+     * @brief Escape sequence to clear the screen
+     * 
+     */
+    virtual void Escape_Clear( void );
+
+    /**
+     * @brief Escape sequence to set special text attributes
+     * 
+     */
+    virtual void Escape_SGR( void );
 protected:
-    uint8_t* Screen;
+    char* Screen;
     uint16_t* Attrib;
 
-    int x;
-    int y;
+    int CursorX;
+    int CursorY;
 
     int TermLength;
     int TermWidth;
@@ -43,33 +112,24 @@ protected:
     int _FontWidth;
     int _FontHeight;
 
-    uint16_t DefaultAttrib;
-    uint16_t AttribMask;
-
+    uint32_t NextCursorBlink;
     uint32_t NextSlowBlink;
     uint32_t NextFastBlink;
 
-    char EscapeString[ 64 ];
-    int EscapeLength;
-    bool IsInEscape;
-
-    void MarkAsDirty( int Offset, int Length );
-
-    int GetCursorOffset( void );
+    /**
+     * @brief Display drivers must implement this to draw characters on the screen
+     * 
+     * @param x X Screen coordinate to draw the character
+     * @param y Y Screen coordinate to draw the character
+     * @param Character Character to draw
+     * @param Attrib Character attributes
+     */
+    virtual void DrawGlyph( int x, int y, char Character, uint16_t Attrib ) = 0;
     void ScrollUp( void );
-
-    virtual size_t DrawGlyph( int x, int y, uint8_t Character, uint16_t Attrib ) = 0;
-
-    virtual void Escape_CursorPosition( void );
-    virtual void Escape_Clear( void );
-    virtual void Escape_SGR( void );
 public:
-    TTermbase( int DisplayWidth, int DisplayHeight, int FontWidth, int FontHeight );
+    virtual void Begin( int DisplayWidth, int DisplayHeight, int FontWidth, int FontHeight );
 
     virtual size_t write( uint8_t Data );
-    //size_t write( const char* StringToWrite );
-
-    void Clear( int Mode );
     void Update( void );
 };
 

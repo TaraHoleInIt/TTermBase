@@ -11,7 +11,7 @@
 #define MakeColorF( r, g, b ) ( ( r == 1 ? Attrib_FR : 0 ) | ( g == 1 ? Attrib_FG : 0 ) | ( b == 1 ? Attrib_FB : 0 ) )
 #define MakeColorB( r, g, b ) ( ( r == 1 ? Attrib_BR : 0 ) | ( g == 1 ? Attrib_BG : 0 ) | ( b == 1 ? Attrib_BB : 0 ) )
 
-TTermbase::TTermbase( int DisplayWidth, int DisplayHeight, int FontWidth, int FontHeight ) {
+void TTermbase::Begin( int DisplayWidth, int DisplayHeight, int FontWidth, int FontHeight ) {
     _FontWidth = FontWidth;
     _FontHeight = FontHeight;
 
@@ -26,53 +26,69 @@ TTermbase::TTermbase( int DisplayWidth, int DisplayHeight, int FontWidth, int Fo
     IsInEscape = false;
     EscapeLength = 0;
 
+    NextCursorBlink = 0;
     NextSlowBlink = 0;
     NextFastBlink = 0;
 
-    Screen = new uint8_t[ TermLength ];
+    LastAttribAtCursorPos = 0;
+    LastCursorX = 0;
+    LastCursorY = 0;
+
+    CursorX = 0;
+    CursorY = 0;
+
+    Screen = new char[ TermLength ];
     Attrib = new uint16_t[ TermLength ];
 
-    Clear( Clear_FullScreen );
+    memset( Screen, 0, TermLength );
+    memset( Attrib, 0, TermLength * 2 );
+    MarkAsDirty( 0, TermLength );
 }
 
-void TTermbase::Clear( int Mode ) {
-    int Offset = x + ( y * TermWidth );
-    int Length = 0;
-    int i = 0;
-
-    Serial.print( "Clear: " );
-    Serial.println( Mode );
-
-    switch ( Mode ) {
-        case Clear_CursorToBOS: {
-            memset( Screen, 0, Offset );
-            memset( Attrib, 0, Offset * 2 );
-
-            MarkAsDirty( 0, Offset );
-            break;
-        }
-        case Clear_FullScreen: {
-            x = 0;
-            y = 0;
-
-            memset( Screen, 0, TermLength );
-            memset( Attrib, 0, TermLength * 2 );
-
-            MarkAsDirty( 0, TermLength );
-            break;
-        }
-        case Clear_CursorToEOS: 
-        default: {
-            memset( &Screen[ Offset ], 0, TermLength - Offset );
-            memset( &Attrib[ Offset ], 0, ( TermLength - Offset ) * 2 );
-
-            MarkAsDirty( Offset, ( TermLength - Offset ) );
-            break;
-        }
-    };
+void TTermbase::Clear( int Offset, int Length ) {
 }
 
 size_t TTermbase::write( uint8_t Data ) {
+    int Offset = GetCursorOffset( CursorX, CursorY );
+
+    // Don't let the cursor go outside the screen
+    CursorX = ( CursorX < 0 ) ? 0 : CursorX;
+    CursorY = ( CursorY < 0 ) ? 0 : CursorY;
+
+    LastCursorX = CursorX;
+    LastCursorY = CursorY;
+
+    switch ( Data ) {
+        case '\r': {
+            CursorX = 0;
+            break;
+        }
+        case '\n': {
+            CursorX = 0;
+            CursorY++;
+            break;
+        }
+        default: {
+            Screen[ Offset ] = Data;
+            Attrib[ Offset ] = AttribMask;
+
+            CursorX++;
+            break;
+        }
+    };
+
+    if ( CursorX >= TermWidth ) {
+        CursorX = 0;
+        CursorY++;
+    }
+
+    if ( CursorY >= TermHeight ) {
+        CursorY = TermHeight - 1;
+        CursorX = 0;
+
+        ScrollUp( );
+    }
+#if 0
     int Offset = GetCursorOffset( );
 
     if ( IsInEscape == true ) {
@@ -94,6 +110,11 @@ size_t TTermbase::write( uint8_t Data ) {
                         Escape_Clear( );
                         break;
                     }
+                    case 'K':
+                    case 'k': {
+                        Escape_EraseInLine( );
+                        break;
+                    }
                     case 'M':
                     case 'm': {
                         Escape_SGR( );
@@ -112,14 +133,18 @@ size_t TTermbase::write( uint8_t Data ) {
                 break;
             }
             default: {
-                EscapeString[ EscapeLength++ ] = Data;
+                if ( AddCharacterToEscapeString( Data ) == false ) {
+                    IsInEscape = false;
+                    EscapeLength = 0;
+                }
+
                 break;
             }
         };
     } else {
         // Should never be below zero
-        x = x < 0 ? 0 : x;
-        y = y < 0 ? 0 : y;
+        CursorX = CursorX < 0 ? 0 : CursorX;
+        CursorY = CursorY < 0 ? 0 : CursorY;
         
         switch ( Data ) {
             case '\x1b': {
@@ -129,54 +154,38 @@ size_t TTermbase::write( uint8_t Data ) {
                 break;
             }
             case '\r': {
-                x = 0;
+                CursorX = 0;
                 break;
             }
             case '\n': {
-                x = 0;
-                y++;
+                CursorX = 0;
+                CursorY++;
 
                 break;
             }
             default: {
                 Attrib[ Offset ] = AttribMask;
                 Screen[ Offset ] = Data;
-                x++;
+                CursorX++;
 
                 break;
             }
         };
 
-        if ( x >= TermWidth ) {
-            x = 0;
-            y++;
+        if ( CursorX >= TermWidth ) {
+            CursorX = 0;
+            CursorY++;
         }
 
-        if ( y >= TermHeight ) {
-            y = TermHeight - 1;
-            x = 0;
+        if ( CursorY >= TermHeight ) {
+            CursorY = TermHeight - 1;
+            CursorX = 0;
 
             ScrollUp( );
         }
     }
-
+#endif
     return 1;
-}
-
-/*
-size_t TTermbase::write( const char* StringToWrite ) {
-    size_t Length = 0;
-
-    while ( *StringToWrite ) {
-        Length+= write( *StringToWrite++ );
-    }
-
-    return Length;
-}
-*/
-
-int TTermbase::GetCursorOffset( void ) {
-    return x + ( y * TermWidth );
 }
 
 void TTermbase::Update( void ) {
@@ -187,7 +196,7 @@ void TTermbase::Update( void ) {
 
     for ( Row = 0; Row < TermHeight; Row++ ) {
         for ( Col = 0; Col < TermWidth; Col++ ) {
-            Offset = Col + ( Row * TermWidth );
+            Offset = GetCursorOffset( Col, Row );
 
             if ( Attrib[ Offset ] & Attrib_Slowblink && ! ( Attrib[ Offset ] & Attrib_Fastblink ) ) {
                 if ( Now >= NextSlowBlink ) {
@@ -247,8 +256,6 @@ void TTermbase::Escape_Clear( void ) {
 
     // If mode doesn't parse correctly just clear to the end of the screen
     Mode = ( Mode == LONG_MIN || Mode == LONG_MAX ) ? 0 : Mode;
-
-    Clear( Mode );
 }
 
 // fg color - 30
@@ -403,7 +410,50 @@ void TTermbase::Escape_CursorPosition( void ) {
         NewX = ( NewX < 0 ) ? 1 : NewX;
         NewX = ( NewX > TermWidth ) ? TermWidth - 1 : NewX - 1;
 
-        x = NewX;
-        y = NewY;
+        LastCursorX = CursorX;
+        LastCursorY = CursorY;
+
+        CursorX = NewX;
+        CursorY = NewY;
     }
+}
+
+void TTermbase::Escape_EraseInLine( void ) {
+    int Offset = GetCursorOffset( CursorX, CursorY );
+    int Length = 0;
+    int Mode = 0;
+
+    Mode = strtol( EscapeString, NULL, 10 );
+
+    // Default to mode 0 (cursor to end of the line) if there was
+    // no argument or it failed to parse
+    Mode = ( Mode == LONG_MIN || Mode == LONG_MAX ) ? 0 : Mode;
+
+    switch ( Mode ) {
+        case 1: {
+            break;
+        }
+        case 2: {
+            break;
+        }
+        case 0: 
+        default: {
+            break;
+        }
+    };
+}
+
+int TTermbase::GetCursorOffset( int x, int y ) {
+    return x + ( y * TermWidth );
+}
+
+bool TTermbase::AddCharacterToEscapeString( char c ) {
+    if ( EscapeLength < ( sizeof( EscapeString ) - 1 ) ) {
+        EscapeString[ EscapeLength++ ] = c;
+        EscapeString[ EscapeLength ] = 0;
+
+        return true;
+    }
+
+    return false;
 }
