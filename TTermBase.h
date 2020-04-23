@@ -110,6 +110,11 @@ private:
      */
     virtual void Escape_MoveCursor( char Mode );
 
+    virtual void Escape_MoveCursorHorizontal( void );
+    
+    virtual void Escape_ScrollDown( void );
+    virtual void Escape_ScrollUp( void );
+
     virtual void HandleEscapeSequence( char Data );
 protected:
     char* Screen;

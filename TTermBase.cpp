@@ -32,7 +32,7 @@ void TTermbase::Begin( int DisplayWidth, int DisplayHeight, int FontWidth, int F
     NextFastBlink = 0;
 
     LastAttribAtCursorPos = DefaultAttrib;
-    LastCharAtCursorPos = 'X';
+    LastCharAtCursorPos = 0;
 
     LastCursorX = 0;
     LastCursorY = 0;
@@ -43,12 +43,13 @@ void TTermbase::Begin( int DisplayWidth, int DisplayHeight, int FontWidth, int F
     Screen = new char[ TermLength ];
     Attrib = new uint16_t[ TermLength ];
 
-    memset( Screen, 0, TermLength );
-    memset( Attrib, 0, TermLength * 2 );
+    Clear( 0, TermLength );
     MarkAsDirty( 0, TermLength );
 }
 
 void TTermbase::Clear( int Offset, int Length ) {
+    memset( &Screen[ Offset ], 0, Length );
+    memset( &Attrib[ Offset ], 0, Length * 2 );
 }
 
 size_t TTermbase::write( uint8_t Data ) {
@@ -167,6 +168,41 @@ void TTermbase::HandleEscapeSequence( char Data ) {
             Escape_MoveCursor( Data );
             break;
         }
+        case 'M':
+        case 'm': {
+            Escape_SGR( );
+            break;
+        }
+        case 'H':
+        case 'h': {
+            Escape_CursorPosition( );
+            break;
+        }
+        case 'J':
+        case 'j': {
+            Escape_Clear( );
+            break;
+        }
+        case 'K':
+        case 'k': {
+            Escape_EraseInLine( );
+            break;
+        }
+        case 'G':
+        case 'g': {
+            Escape_MoveCursorHorizontal( );
+            break;
+        }
+        case 'T':
+        case 't': {
+            Escape_ScrollDown( );
+            break;
+        }
+        case 'S':
+        case 's': {
+            Escape_ScrollUp( );
+            break;
+        }
         default: {
             Serial.print( "Unhandled escape code: " );
             Serial.println( Data );
@@ -247,10 +283,10 @@ void TTermbase::ScrollUp( void ) {
         memcpy( &Attrib[ ( Row - 1 ) * TermWidth ], &Attrib[ Row * TermWidth ], TermWidth * 2 );
     }
 
-    memset( &Screen[ ( TermHeight - 1 ) * TermWidth ], 0, TermWidth );
-    memset( &Attrib[ ( TermHeight - 1 ) * TermWidth ], 0, TermWidth * 2 );
+    // Clear the last line of the screen
+    Clear( GetCursorOffset( 0, TermHeight - 1 ), TermWidth );
 
-    // mark entire screen as dirty
+    // Mark entire screen as dirty
     MarkAsDirty( 0, TermLength );
 }
 
@@ -263,10 +299,37 @@ void TTermbase::MarkAsDirty( int Offset, int Length ) {
 }
 
 void TTermbase::Escape_Clear( void ) {
+    int Cursor = GetCursorOffset( CursorX, CursorY );
     int Mode = strtol( EscapeString, NULL, 10 );
+    int Length = 0;
+    int Offset = 0;
 
     // If mode doesn't parse correctly just clear to the end of the screen
     Mode = ( Mode == LONG_MIN || Mode == LONG_MAX ) ? 0 : Mode;
+
+    switch ( Mode ) {
+        case 2: {
+            Length = TermLength;
+            Offset = 0;
+            break;
+        }
+        case 1: {
+            Length = Cursor;
+            Offset = 0;
+
+            break;
+        }
+        case 0:
+        default: {
+            Offset = Cursor;
+            Length = TermLength - Offset;
+
+            break;
+        }
+    };
+
+    Clear( Offset, Length );
+    MarkAsDirty( Offset, Length );
 }
 
 // fg color - 30
@@ -439,17 +502,26 @@ void TTermbase::Escape_EraseInLine( void ) {
     Mode = ( Mode == LONG_MIN || Mode == LONG_MAX ) ? 0 : Mode;
 
     switch ( Mode ) {
-        case 1: {
+        case 2: {
+            Offset = GetCursorOffset( 0, CursorY );
+            Length = TermWidth;
             break;
         }
-        case 2: {
+        case 1: {
+            Offset = GetCursorOffset( 0, CursorY );
+            Length = CursorX;
             break;
         }
         case 0: 
         default: {
+            Offset = GetCursorOffset( CursorX, CursorY );
+            Length = TermWidth - CursorX;
             break;
         }
     };
+
+    Clear( Offset, Length );
+    MarkAsDirty( Offset, Length );
 }
 
 int TTermbase::GetCursorOffset( int x, int y ) {
@@ -491,4 +563,19 @@ void TTermbase::MoveCursor( int NewX, int NewY ) {
 
     CursorX = NewX;
     CursorY = NewY;
+}
+
+void TTermbase::Escape_MoveCursorHorizontal( void ) {
+    int Col = 0;
+
+    Col = strtol( EscapeString, NULL, 10 );
+    Col = ( Col == LONG_MIN || Col == LONG_MAX || Col == 0 ) ? 1 : Col;
+
+    MoveCursor( Col - 1, CursorY );
+}
+
+void TTermbase::Escape_ScrollDown( void ) {
+}
+
+void TTermbase::Escape_ScrollUp( void ) {
 }
